@@ -1,0 +1,123 @@
+"""Model A inference entry point.
+
+Usage:
+    from model_a.run import run_model_a
+    result = run_model_a("input.wav", "output.wav")
+"""
+import gc
+import os
+import sys
+from typing import Optional
+
+import torch
+
+
+SYSTEM_PROMPT = "You are a helpful voice assistant. Answer in one short sentence."
+USER_TEMPLATE = (
+    "I am giving you a transcript of what a person said in a recording: \"{transcript}\". "
+    "Based on this recording, is the speaker male or female?"
+)
+
+
+def _stage1(audio_path: str) -> str:
+    """First stage: speech -> text."""
+    from faster_whisper import WhisperModel
+
+    model = WhisperModel("large-v3", device="cuda", compute_type="int8")
+    segments, _ = model.transcribe(audio_path, language="en", beam_size=5)
+    transcript = " ".join(seg.text.strip() for seg in segments).strip()
+
+    del model
+    gc.collect()
+    torch.cuda.empty_cache()
+    return transcript
+
+
+def _stage2(transcript: str, hf_token: Optional[str]) -> str:
+    """Second stage: text -> text response."""
+    from transformers import AutoModelForCausalLM, AutoTokenizer
+
+    model_id = "unsloth/Meta-Llama-3.1-8B-Instruct-bnb-4bit"
+    kwargs = {"token": hf_token} if hf_token else {}
+
+    tokenizer = AutoTokenizer.from_pretrained(model_id, **kwargs)
+    model = AutoModelForCausalLM.from_pretrained(
+        model_id,
+        device_map="auto",
+        torch_dtype=torch.bfloat16,
+        **kwargs,
+    )
+
+    messages = [
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "user", "content": USER_TEMPLATE.format(transcript=transcript)},
+    ]
+    input_ids = tokenizer.apply_chat_template(
+        messages, return_tensors="pt", add_generation_prompt=True
+    ).to(model.device)
+
+    with torch.no_grad():
+        output = model.generate(
+            input_ids,
+            max_new_tokens=80,
+            do_sample=False,
+            temperature=1.0,
+            pad_token_id=tokenizer.eos_token_id,
+        )
+    response = tokenizer.decode(
+        output[0][input_ids.shape[-1]:], skip_special_tokens=True
+    ).strip()
+
+    del model, tokenizer
+    gc.collect()
+    torch.cuda.empty_cache()
+    return response
+
+
+def _stage3(text: str, output_path: str, cosyvoice_dir: str) -> None:
+    """Third stage: text -> speech."""
+    sys.path.insert(0, cosyvoice_dir)
+    sys.path.insert(0, os.path.join(cosyvoice_dir, "third_party/Matcha-TTS"))
+    from cosyvoice.cli.cosyvoice import CosyVoice
+    import torchaudio
+
+    pretrained = os.path.join(cosyvoice_dir, "pretrained_models/CosyVoice-300M")
+    cosy = CosyVoice(pretrained)
+
+    chunks = []
+    for chunk in cosy.inference_sft(text, "英文女"):
+        chunks.append(chunk["tts_speech"])
+    audio = torch.cat(chunks, dim=1)
+    torchaudio.save(output_path, audio, 22050)
+
+    del cosy
+    gc.collect()
+    torch.cuda.empty_cache()
+
+
+def run_model_a(
+    audio_path: str,
+    output_path: str,
+    hf_token: Optional[str] = None,
+    cosyvoice_dir: str = "/content/CosyVoice",
+) -> dict:
+    """Run Model A on an audio file.
+
+    Args:
+        audio_path: Path to the input WAV/MP3 file.
+        output_path: Path where the model's spoken response will be saved.
+        hf_token: Optional Hugging Face token (not required for default models).
+        cosyvoice_dir: Path to the cloned CosyVoice repository.
+
+    Returns:
+        Dict with keys: transcript, response, output_audio.
+    """
+    transcript = _stage1(audio_path)
+    response = _stage2(transcript, hf_token)
+    _stage3(response, output_path, cosyvoice_dir)
+
+    return {
+        "transcript": transcript,
+        "response": response,
+        "output_audio": output_path,
+    }
