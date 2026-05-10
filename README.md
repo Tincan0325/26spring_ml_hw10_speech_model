@@ -19,18 +19,18 @@ sample_audio/   Example input clip
 In the TA-provided notebook, after selecting **Runtime → Change runtime type → T4 GPU**:
 
 ```python
-!git clone https://github.com/<your-repo>/speech-model-comparison /content/repo
+!git clone https://github.com/Tincan0325/26spring_ml_hw10_speech_model.git /content/repo
 
 # Run Model A on your audio clip
 !bash /content/repo/model_a/setup.sh
+!bash /content/repo/model_b/setup.sh
+
 import sys; sys.path.insert(0, "/content/repo")
+
 from model_a.run import run_model_a
 run_model_a("/content/your_clip.wav", "/content/out_a.wav")
 
-# Free GPU memory between models (the TA notebook handles this).
 
-# Run Model B
-!bash /content/repo/model_b/setup.sh
 from model_b.run import run_model_b
 run_model_b("/content/your_clip.wav", "/content/out_b.wav")
 ```
