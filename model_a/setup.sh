@@ -23,9 +23,6 @@ pip install -r "$SCRIPT_DIR/requirements.txt" >> "$LOG_FILE" 2>&1
 pip install -r "$COSYVOICE_DIR/requirements.txt" >> "$LOG_FILE" 2>&1
 
 echo "[Model A] Downloading model weights..."
-pip install -q "huggingface_hub[cli]" >> "$LOG_FILE" 2>&1
-huggingface-cli download FunAudioLLM/CosyVoice-300M \
-  --local-dir "$COSYVOICE_DIR/pretrained_models/CosyVoice-300M" \
-  >> "$LOG_FILE" 2>&1
+python3 -c "from huggingface_hub import snapshot_download; snapshot_download('FunAudioLLM/CosyVoice-300M', local_dir='$COSYVOICE_DIR/pretrained_models/CosyVoice-300M')" >> "$LOG_FILE" 2>&1
 
 echo "[Model A] Setup complete."
