@@ -19,13 +19,6 @@ warnings.filterwarnings("ignore")
 logging.getLogger("transformers").setLevel(logging.ERROR)
 
 
-# Pre-recorded instruction prepended to every input clip so the model knows
-# what the user is asking about the speaker in the recording.
-DEFAULT_INSTRUCTION_WAV = os.path.join(
-    os.path.dirname(os.path.abspath(__file__)), "instruction.wav"
-)
-
-
 def _concat_audio(instruction_wav: str, audio_path: str) -> str:
     """Prepend the instruction clip to the user-provided clip and write to a tmp file."""
     from pydub import AudioSegment
@@ -138,19 +131,25 @@ def run_model_b(
     """Run Model B on an audio file.
 
     Args:
-        audio_path: Path to the input WAV/MP3 file.
+        audio_path: Path to the input WAV/MP3 file. Expected to already contain
+            the spoken instruction prefix (as produced for sample_audio_prompted).
         output_path: Path where the model's spoken response will be saved.
         hf_token: Optional Hugging Face token.
         framework_dir: Path to the cloned support repository.
-        instruction_wav: Override the default instruction clip if needed.
+        instruction_wav: If provided, prepend this clip to ``audio_path`` before
+            inference. Leave as None when the input already has the instruction
+            spoken at the start.
         vocoder_ckpt: Path to the vocoder checkpoint.
         vocoder_cfg: Path to the vocoder config JSON.
 
     Returns:
         Dict with keys: response, output_audio.
     """
-    instruction = instruction_wav or DEFAULT_INSTRUCTION_WAV
-    combined = _concat_audio(instruction, audio_path)
+    if instruction_wav is None:
+        return _run_inference(
+            audio_path, output_path, hf_token, framework_dir, vocoder_ckpt, vocoder_cfg
+        )
+    combined = _concat_audio(instruction_wav, audio_path)
     try:
         return _run_inference(
             combined, output_path, hf_token, framework_dir, vocoder_ckpt, vocoder_cfg

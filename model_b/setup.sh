@@ -14,8 +14,12 @@ if [ ! -d "/content/LLaMA-Omni" ]; then
   git clone -q --depth 1 https://github.com/ictnlp/LLaMA-Omni /content/LLaMA-Omni >> "$LOG_FILE" 2>&1
 fi
 
-pip install git+https://github.com/pytorch/fairseq.git >> "$LOG_FILE" 2>&1
-pip install -e /content/LLaMA-Omni >> "$LOG_FILE" 2>&1
+# fairseq pins omegaconf<2.1 whose old metadata can't be parsed by modern pip,
+# and LLaMA-Omni pins torch==2.1.2 which isn't available on Python 3.12.
+# Install both with --no-deps and supply the deps Model B's inference path uses.
+pip install --no-deps git+https://github.com/pytorch/fairseq.git >> "$LOG_FILE" 2>&1
+pip install --no-deps -e /content/LLaMA-Omni >> "$LOG_FILE" 2>&1
+pip install bitarray sacrebleu hydra-core omegaconf >> "$LOG_FILE" 2>&1
 pip install -r "$(dirname "$0")/requirements.txt" >> "$LOG_FILE" 2>&1
 pip install openai-whisper >> "$LOG_FILE" 2>&1
 
