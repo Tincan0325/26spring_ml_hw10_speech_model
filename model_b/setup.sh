@@ -17,6 +17,7 @@ fi
 pip install git+https://github.com/pytorch/fairseq.git >> "$LOG_FILE" 2>&1
 pip install -e /content/LLaMA-Omni >> "$LOG_FILE" 2>&1
 pip install -r "$(dirname "$0")/requirements.txt" >> "$LOG_FILE" 2>&1
+pip install openai-whisper >> "$LOG_FILE" 2>&1
 
 mkdir -p /content/vocoder
 if [ ! -f "/content/vocoder/g_00500000" ]; then
