@@ -11,7 +11,7 @@ echo "[Model B] Installing dependency..."
 apt-get install -y -qq libsndfile1 ffmpeg >> "$LOG_FILE" 2>&1
 
 if [ ! -d "/content/LLaMA-Omni" ]; then
-  git clone -q https://github.com/ictnlp/LLaMA-Omni /content/LLaMA-Omni >> "$LOG_FILE" 2>&1
+  git clone -q --depth 1 https://github.com/ictnlp/LLaMA-Omni /content/LLaMA-Omni >> "$LOG_FILE" 2>&1
 fi
 
 pip install git+https://github.com/pytorch/fairseq.git >> "$LOG_FILE" 2>&1

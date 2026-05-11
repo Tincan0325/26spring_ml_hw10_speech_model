@@ -15,12 +15,14 @@ apt-get install -y -qq libsndfile1 sox ffmpeg >> "$LOG_FILE" 2>&1
 
 echo "[Model A] Cloning support repository..."
 if [ ! -d "$COSYVOICE_DIR" ]; then
-  git clone -q --recursive https://github.com/FunAudioLLM/CosyVoice "$COSYVOICE_DIR" >> "$LOG_FILE" 2>&1
+  git clone -q --depth 1 --recursive --shallow-submodules https://github.com/FunAudioLLM/CosyVoice "$COSYVOICE_DIR" >> "$LOG_FILE" 2>&1
 fi
 
 echo "[Model A] Installing Python dependencies..."
 pip install -r "$SCRIPT_DIR/requirements.txt" >> "$LOG_FILE" 2>&1
-pip install -r "$COSYVOICE_DIR/requirements.txt" >> "$LOG_FILE" 2>&1
+# Filter out openai-whisper (not used by Model A; fails to build on Python 3.12)
+sed '/^openai-whisper/d' "$COSYVOICE_DIR/requirements.txt" > /tmp/cosyvoice_requirements_filtered.txt
+pip install -r /tmp/cosyvoice_requirements_filtered.txt >> "$LOG_FILE" 2>&1
 
 echo "[Model A] Downloading model weights..."
 python3 -c "from huggingface_hub import snapshot_download; snapshot_download('FunAudioLLM/CosyVoice-300M', local_dir='$COSYVOICE_DIR/pretrained_models/CosyVoice-300M')" >> "$LOG_FILE" 2>&1
