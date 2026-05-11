@@ -52,13 +52,20 @@ def _stage2(transcript: str, hf_token: Optional[str]) -> str:
         {"role": "system", "content": SYSTEM_PROMPT},
         {"role": "user", "content": USER_TEMPLATE.format(transcript=transcript)},
     ]
-    input_ids = tokenizer.apply_chat_template(
+    chat_input = tokenizer.apply_chat_template(
         messages, return_tensors="pt", add_generation_prompt=True
-    ).to(model.device)
+    )
+    # Newer transformers may return a BatchEncoding instead of a raw tensor
+    if hasattr(chat_input, "input_ids"):
+        input_ids = chat_input["input_ids"].to(model.device)
+        generate_kwargs = {k: v.to(model.device) for k, v in chat_input.items()}
+    else:
+        input_ids = chat_input.to(model.device)
+        generate_kwargs = {"input_ids": input_ids}
 
     with torch.no_grad():
         output = model.generate(
-            input_ids,
+            **generate_kwargs,
             max_new_tokens=80,
             do_sample=False,
             temperature=1.0,
