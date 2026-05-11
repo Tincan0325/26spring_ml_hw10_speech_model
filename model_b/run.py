@@ -81,7 +81,7 @@ def _run_inference(
     conv.append_message(conv.roles[0], "<speech>")
     conv.append_message(conv.roles[1], None)
     prompt = conv.get_prompt()
-    input_ids = tokenizer_speech_token(prompt, tokenizer, return_tensors="pt").to("cuda")
+    input_ids = tokenizer_speech_token(prompt, tokenizer, return_tensors="pt").unsqueeze(0).to("cuda")
 
     with torch.inference_mode():
         outputs = model.generate(
