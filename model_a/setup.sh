@@ -19,8 +19,8 @@ if [ ! -d "$COSYVOICE_DIR" ]; then
 fi
 
 echo "[Model A] Installing Python dependencies..."
-pip install -q -r "$SCRIPT_DIR/requirements.txt" >> "$LOG_FILE" 2>&1
-pip install -q -r "$COSYVOICE_DIR/requirements.txt" >> "$LOG_FILE" 2>&1
+pip install -r "$SCRIPT_DIR/requirements.txt" >> "$LOG_FILE" 2>&1
+pip install -r "$COSYVOICE_DIR/requirements.txt" >> "$LOG_FILE" 2>&1
 
 echo "[Model A] Downloading model weights..."
 pip install -q "huggingface_hub[cli]" >> "$LOG_FILE" 2>&1

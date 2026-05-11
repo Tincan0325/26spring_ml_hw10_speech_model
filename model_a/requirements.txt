@@ -5,3 +5,9 @@ bitsandbytes>=0.43.0
 soundfile
 torchaudio
 hyperpyyaml
+modelscope
+einops
+vector_quantize_pytorch
+lightning
+conformer
+WeTextProcessing
