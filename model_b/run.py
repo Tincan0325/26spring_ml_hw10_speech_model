@@ -60,11 +60,13 @@ def _run_inference(
 
     model_kwargs = {"token": hf_token} if hf_token else {}
 
+    # 4-bit load to fit Llama-3.1-8B-Omni + speech encoder + projector + vocoder on a T4 (16 GB).
     tokenizer, model, _ = load_pretrained_model(
         model_path="ICTNLP/Llama-3.1-8B-Omni",
         model_base=None,
         is_lora=False,
         s2s=True,
+        load_4bit=True,
         device="cuda",
         **model_kwargs,
     )
