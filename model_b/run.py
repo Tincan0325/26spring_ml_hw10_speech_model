@@ -19,6 +19,29 @@ warnings.filterwarnings("ignore")
 logging.getLogger("transformers").setLevel(logging.ERROR)
 
 
+def _patch_quantized_to():
+    """Allow accelerate's dispatch_model to call .to(device) on bnb-quantized models.
+
+    transformers raises ValueError when .to() is called on a 4-bit/8-bit model, but
+    accelerate's dispatch_model unconditionally calls it as part of from_pretrained.
+    We make it a no-op for quantized models; quantized params are already on GPU,
+    and non-persistent buffers are moved manually in _run_inference below.
+    """
+    import transformers.modeling_utils as _mu
+
+    if getattr(_mu.PreTrainedModel.to, "_patched_for_quantized", False):
+        return
+    _orig_to = _mu.PreTrainedModel.to
+
+    def _patched_to(self, *args, **kwargs):
+        if getattr(self, "is_quantized", False) or getattr(self, "is_loaded_in_4bit", False) or getattr(self, "is_loaded_in_8bit", False):
+            return self
+        return _orig_to(self, *args, **kwargs)
+
+    _patched_to._patched_for_quantized = True
+    _mu.PreTrainedModel.to = _patched_to
+
+
 def _concat_audio(instruction_wav: str, audio_path: str) -> str:
     """Prepend the instruction clip to the user-provided clip and write to a tmp file."""
     from pydub import AudioSegment
@@ -49,6 +72,7 @@ def _run_inference(
     vocoder_cfg: str,
 ) -> dict:
     sys.path.insert(0, framework_dir)
+    _patch_quantized_to()
 
     import whisper
     from omni_speech.model.builder import load_pretrained_model
