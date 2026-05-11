@@ -91,7 +91,7 @@ def _stage3(text: str, output_path: str, cosyvoice_dir: str) -> None:
     from cosyvoice.cli.cosyvoice import CosyVoice
     import torchaudio
 
-    pretrained = os.path.join(cosyvoice_dir, "pretrained_models/CosyVoice-300M")
+    pretrained = os.path.join(cosyvoice_dir, "pretrained_models/CosyVoice-300M-SFT")
     cosy = CosyVoice(pretrained)
 
     chunks = []
