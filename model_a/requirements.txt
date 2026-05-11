@@ -4,3 +4,4 @@ accelerate>=0.34.0
 bitsandbytes>=0.43.0
 soundfile
 torchaudio
+hyperpyyaml
