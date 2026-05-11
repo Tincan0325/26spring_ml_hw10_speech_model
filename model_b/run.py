@@ -70,6 +70,16 @@ def _run_inference(
         device="cuda",
         **model_kwargs,
     )
+    # accelerate's dispatch_model places quantized params on GPU but leaves
+    # non-persistent buffers (e.g. LlamaRotaryEmbedding.inv_freq) on CPU,
+    # which then fails at the first forward. Move them manually.
+    for name, buf in list(model.named_buffers()):
+        if buf.device.type != "cuda":
+            parts = name.split(".")
+            mod = model
+            for p in parts[:-1]:
+                mod = getattr(mod, p)
+            mod.register_buffer(parts[-1], buf.cuda(), persistent=False)
 
     speech = whisper.load_audio(audio_path)
     speech = whisper.pad_or_trim(speech)
