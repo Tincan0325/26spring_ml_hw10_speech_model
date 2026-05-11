@@ -5,18 +5,19 @@ Usage:
     result = run_model_a("input.wav", "output.wav")
 """
 import gc
+import logging
 import os
 import sys
+import warnings
 from typing import Optional
 
 import torch
 
+warnings.filterwarnings("ignore")
+logging.getLogger("transformers").setLevel(logging.ERROR)
+logging.getLogger("faster_whisper").setLevel(logging.ERROR)
 
-SYSTEM_PROMPT = "You are a helpful voice assistant. Answer in one short sentence."
-USER_TEMPLATE = (
-    "I am giving you a transcript of what a person said in a recording: \"{transcript}\". "
-    "Based on this recording, is the speaker male or female?"
-)
+_MODEL_A_DIR = os.path.dirname(os.path.abspath(__file__))
 
 
 def _stage1(audio_path: str) -> str:
@@ -49,8 +50,7 @@ def _stage2(transcript: str, hf_token: Optional[str]) -> str:
     )
 
     messages = [
-        {"role": "system", "content": SYSTEM_PROMPT},
-        {"role": "user", "content": USER_TEMPLATE.format(transcript=transcript)},
+        {"role": "user", "content": transcript},
     ]
     chat_input = tokenizer.apply_chat_template(
         messages, return_tensors="pt", add_generation_prompt=True
@@ -83,6 +83,9 @@ def _stage2(transcript: str, hf_token: Optional[str]) -> str:
 
 def _stage3(text: str, output_path: str, cosyvoice_dir: str) -> None:
     """Third stage: text -> speech."""
+    if not torch.cuda.is_available():
+        raise RuntimeError("Stage 3 (CosyVoice) requires a CUDA GPU.")
+
     sys.path.insert(0, cosyvoice_dir)
     sys.path.insert(0, os.path.join(cosyvoice_dir, "third_party/Matcha-TTS"))
     from cosyvoice.cli.cosyvoice import CosyVoice
@@ -106,7 +109,7 @@ def run_model_a(
     audio_path: str,
     output_path: str,
     hf_token: Optional[str] = None,
-    cosyvoice_dir: str = "/content/CosyVoice",
+    cosyvoice_dir: str = os.path.join(_MODEL_A_DIR, "CosyVoice"),
 ) -> dict:
     """Run Model A on an audio file.
 

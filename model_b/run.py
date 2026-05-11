@@ -6,12 +6,17 @@ Usage:
 """
 import gc
 import json
+import logging
 import os
 import sys
 import tempfile
+import warnings
 from typing import Optional
 
 import torch
+
+warnings.filterwarnings("ignore")
+logging.getLogger("transformers").setLevel(logging.ERROR)
 
 
 # Pre-recorded instruction prepended to every input clip so the model knows
@@ -78,10 +83,7 @@ def _run_inference(
     speech_length = torch.LongTensor([speech_tensor.shape[1]]).to(device="cuda")
 
     conv = conv_templates["llama_3"].copy()
-    conv.append_message(
-        conv.roles[0],
-        "<speech>\nPlease directly answer the questions in the user's speech.",
-    )
+    conv.append_message(conv.roles[0], "<speech>")
     conv.append_message(conv.roles[1], None)
     prompt = conv.get_prompt()
     input_ids = tokenizer_speech_token(prompt, tokenizer, return_tensors="pt").to("cuda")
