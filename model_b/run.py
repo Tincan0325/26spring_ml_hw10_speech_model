@@ -102,6 +102,8 @@ def _run_inference(
     _patch_quantized_to()
 
     with _silenced():
+        import transformers
+        transformers.logging.set_verbosity_error()
         import whisper
         from omni_speech.model.builder import load_pretrained_model
         from omni_speech.conversation import conv_templates

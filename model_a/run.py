@@ -67,6 +67,8 @@ def _stage2(transcript: str, hf_token: Optional[str]) -> str:
     """Second stage: text -> text response."""
     with _silenced():
         from transformers import AutoModelForCausalLM, AutoTokenizer
+        import transformers
+        transformers.logging.set_verbosity_error()
 
         model_id = "unsloth/Meta-Llama-3.1-8B-Instruct-bnb-4bit"
         kwargs = {"token": hf_token} if hf_token else {}
