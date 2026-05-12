@@ -138,133 +138,13 @@ def _stage3(text: str, output_path: str, cosyvoice_dir: str) -> None:
     torch.cuda.empty_cache()
 
 
-def run_model_a_batch(
-    audio_paths,
-    output_dir: str,
-    hf_token: Optional[str] = None,
-    cosyvoice_dir: str = None,
-    on_clip_done=None,
-) -> dict:
-    """Run Model A on many clips, loading each stage's weights only once.
-
-    Args:
-        audio_paths: iterable of input WAV/MP3 paths.
-        output_dir: directory to write synthesised WAVs into (named ``<stem>.wav``).
-        hf_token: optional Hugging Face token.
-        cosyvoice_dir: support repo path (defaults to ``model_a/CosyVoice``).
-        on_clip_done: optional callable ``(idx, audio_path, transcript, response, out_path)``
-            invoked immediately after each output WAV is written. Used by the
-            notebook to trigger per-clip download.
-
-    Returns:
-        ``{audio_path: {"transcript": ..., "response": ..., "output_audio": ...}}``
-    """
-    from pathlib import Path
-
-    audio_paths = list(audio_paths)
-    if cosyvoice_dir is None:
-        cosyvoice_dir = os.path.join(_MODEL_A_DIR, "CosyVoice")
-    os.makedirs(output_dir, exist_ok=True)
-    results = {}
-
-    # Stage 1: transcribe all clips with one model load.
-    with _silenced():
-        from faster_whisper import WhisperModel
-
-        whisper_model = WhisperModel("large-v3", device="cuda", compute_type="int8")
-        transcripts = []
-        for path in audio_paths:
-            segments, _ = whisper_model.transcribe(path, language="en", beam_size=5)
-            transcripts.append(" ".join(seg.text.strip() for seg in segments).strip())
-        del whisper_model
-        gc.collect()
-        torch.cuda.empty_cache()
-
-    # Stage 2: generate responses with one LLM load.
-    with _silenced():
-        from transformers import AutoModelForCausalLM, AutoTokenizer
-        import transformers
-        transformers.logging.set_verbosity_error()
-
-        model_id = "unsloth/Meta-Llama-3.1-8B-Instruct-bnb-4bit"
-        kwargs = {"token": hf_token} if hf_token else {}
-        tokenizer = AutoTokenizer.from_pretrained(model_id, **kwargs)
-        llm = AutoModelForCausalLM.from_pretrained(
-            model_id,
-            device_map="auto",
-            torch_dtype=torch.bfloat16,
-            **kwargs,
-        )
-        responses = []
-        for transcript in transcripts:
-            chat_input = tokenizer.apply_chat_template(
-                [{"role": "user", "content": transcript}],
-                return_tensors="pt",
-                add_generation_prompt=True,
-            )
-            if hasattr(chat_input, "input_ids"):
-                input_ids = chat_input["input_ids"].to(llm.device)
-                generate_kwargs = {k: v.to(llm.device) for k, v in chat_input.items()}
-            else:
-                input_ids = chat_input.to(llm.device)
-                generate_kwargs = {"input_ids": input_ids}
-            with torch.no_grad():
-                output = llm.generate(
-                    **generate_kwargs,
-                    max_new_tokens=80,
-                    do_sample=False,
-                    temperature=1.0,
-                    pad_token_id=tokenizer.eos_token_id,
-                )
-            responses.append(
-                tokenizer.decode(output[0][input_ids.shape[-1]:], skip_special_tokens=True).strip()
-            )
-        del llm, tokenizer
-        gc.collect()
-        torch.cuda.empty_cache()
-
-    # Stage 3: synthesise speech with one CosyVoice load; callback per clip.
-    if not torch.cuda.is_available():
-        raise RuntimeError("Stage 3 requires a CUDA GPU.")
-    sys.path.insert(0, cosyvoice_dir)
-    sys.path.insert(0, os.path.join(cosyvoice_dir, "third_party/Matcha-TTS"))
-    with _silenced():
-        from cosyvoice.cli.cosyvoice import CosyVoice
-        import torchaudio
-
-        pretrained = os.path.join(cosyvoice_dir, "pretrained_models/CosyVoice-300M-SFT")
-        cosy = CosyVoice(pretrained)
-
-    for idx, (path, transcript, response) in enumerate(zip(audio_paths, transcripts, responses)):
-        stem = Path(path).stem
-        out_path = os.path.join(output_dir, f"{stem}.wav")
-        with _silenced():
-            chunks = [chunk["tts_speech"] for chunk in cosy.inference_sft(response, "英文女")]
-            audio = torch.cat(chunks, dim=1)
-            torchaudio.save(out_path, audio, 22050)
-        results[path] = {
-            "transcript": transcript,
-            "response": response,
-            "output_audio": out_path,
-        }
-        if on_clip_done is not None:
-            on_clip_done(idx, path, transcript, response, out_path)
-
-    with _silenced():
-        del cosy
-        gc.collect()
-        torch.cuda.empty_cache()
-
-    return results
-
-
 def run_model_a(
     audio_path: str,
     output_path: str,
     hf_token: Optional[str] = None,
     cosyvoice_dir: str = os.path.join(_MODEL_A_DIR, "CosyVoice"),
 ) -> dict:
-    """Run Model A on a single audio file.
+    """Run Model A on an audio file.
 
     Args:
         audio_path: Path to the input WAV/MP3 file.
