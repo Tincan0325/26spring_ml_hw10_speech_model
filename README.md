@@ -11,7 +11,6 @@ model produces, not to change them.
 ```
 model_a/                  Inference code for Model A
 model_b/                  Inference code for Model B
-sample_audio/             Raw LibriSpeech clips (16 kHz mono FLAC)
 sample_audio_prompted/    Same clips with spoken prompt prepended
 ```
 
