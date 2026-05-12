@@ -29,7 +29,9 @@ grep -Ev "$FILTER" "$COSYVOICE_DIR/requirements.txt" > /tmp/cosyvoice_requiremen
 pip install -r /tmp/cosyvoice_requirements_filtered.txt >> "$LOG_FILE" 2>&1
 # wget is imported at module-load time by Matcha-TTS; onnxruntime 1.18 was built
 # against numpy<2 and crashes on Colab's numpy 2.x, so pin a numpy-2-compatible version.
-pip install -q wget "onnxruntime-gpu>=1.19" >> "$LOG_FILE" 2>&1
+# openai-whisper is imported at module-load by CosyVoice's cli/frontend.py but was
+# filtered above (CosyVoice pins an unbuildable old version); install a recent one.
+pip install -q wget openai-whisper "onnxruntime-gpu>=1.19" >> "$LOG_FILE" 2>&1
 
 echo "[Model A] Downloading model weights..."
 python3 -c "from huggingface_hub import snapshot_download; snapshot_download('FunAudioLLM/CosyVoice-300M-SFT', local_dir='$COSYVOICE_DIR/pretrained_models/CosyVoice-300M-SFT')" >> "$LOG_FILE" 2>&1
