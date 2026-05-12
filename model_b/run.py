@@ -184,6 +184,127 @@ def _run_inference(
     return {"response": response_text, "output_audio": output_path}
 
 
+def run_model_b_batch(
+    audio_paths,
+    output_dir: str,
+    hf_token: Optional[str] = None,
+    framework_dir: str = "/content/LLaMA-Omni",
+    vocoder_ckpt: str = "/content/vocoder/g_00500000",
+    vocoder_cfg: str = "/content/vocoder/config.json",
+    on_clip_done=None,
+) -> dict:
+    """Run Model B on many clips, loading LLaMA-Omni and the vocoder only once each.
+
+    Args:
+        audio_paths: iterable of input WAV/MP3 paths (already prompt-prefixed).
+        output_dir: where to write synthesised WAVs (named ``<stem>.wav``).
+        on_clip_done: optional callable ``(idx, audio_path, response, out_path)``
+            invoked immediately after each output WAV is written.
+
+    Returns:
+        ``{audio_path: {"response": ..., "output_audio": ...}}``
+    """
+    from pathlib import Path
+
+    audio_paths = list(audio_paths)
+    os.makedirs(output_dir, exist_ok=True)
+    results = {}
+
+    sys.path.insert(0, framework_dir)
+    _patch_quantized_to()
+
+    # Phase 1: speech → (response_text, units_str) for every clip, one LLM load.
+    with _silenced():
+        import transformers
+        transformers.logging.set_verbosity_error()
+        import whisper
+        from omni_speech.model.builder import load_pretrained_model
+        from omni_speech.conversation import conv_templates
+        from omni_speech.datasets.preprocess import tokenizer_speech_token
+        from fairseq.models.text_to_speech.vocoder import CodeHiFiGANVocoder
+        from fairseq import utils as fs_utils
+        import soundfile as sf
+
+        model_kwargs = {"token": hf_token} if hf_token else {}
+        tokenizer, model, _ = load_pretrained_model(
+            model_path="ICTNLP/Llama-3.1-8B-Omni",
+            model_base=None,
+            is_lora=False,
+            s2s=True,
+            load_4bit=True,
+            device="cuda",
+            **model_kwargs,
+        )
+        for name, buf in list(model.named_buffers()):
+            if buf.device.type != "cuda":
+                parts = name.split(".")
+                mod = model
+                for p in parts[:-1]:
+                    mod = getattr(mod, p)
+                mod.register_buffer(parts[-1], buf.cuda(), persistent=False)
+
+        intermediate = []  # (audio_path, response_text, units_str)
+        for path in audio_paths:
+            speech = whisper.load_audio(path)
+            speech = whisper.pad_or_trim(speech)
+            mel = whisper.log_mel_spectrogram(speech, n_mels=128)
+            speech_tensor = mel.permute(1, 0).unsqueeze(0).to(dtype=torch.float16, device="cuda")
+            speech_length = torch.LongTensor([speech_tensor.shape[1]]).to(device="cuda")
+
+            conv = conv_templates["llama_3"].copy()
+            conv.append_message(conv.roles[0], "<speech>")
+            conv.append_message(conv.roles[1], None)
+            prompt = conv.get_prompt()
+            input_ids = tokenizer_speech_token(prompt, tokenizer, return_tensors="pt").unsqueeze(0).to("cuda")
+
+            with torch.inference_mode():
+                outputs = model.generate(
+                    input_ids,
+                    speech=speech_tensor,
+                    speech_lengths=speech_length,
+                    do_sample=False,
+                    temperature=0,
+                    top_p=None,
+                    num_beams=1,
+                    max_new_tokens=256,
+                    use_cache=True,
+                    pad_token_id=128004,
+                    streaming_unit_gen=False,
+                )
+            output_ids, output_units = outputs
+            response_text = tokenizer.batch_decode(output_ids, skip_special_tokens=True)[0].strip()
+            units_str = _ctc_postprocess(output_units, blank=model.config.unit_vocab_size)
+            intermediate.append((path, response_text, units_str))
+
+        del model, tokenizer
+        gc.collect()
+        torch.cuda.empty_cache()
+
+        with open(vocoder_cfg) as f:
+            cfg = json.load(f)
+        vocoder = CodeHiFiGANVocoder(vocoder_ckpt, cfg).cuda()
+
+    # Phase 2: vocode each clip; callback per file so the notebook can download.
+    for idx, (path, response, units_str) in enumerate(intermediate):
+        stem = Path(path).stem
+        out_path = os.path.join(output_dir, f"{stem}.wav")
+        with _silenced():
+            codes = list(map(int, units_str.split()))
+            x = fs_utils.move_to_cuda({"code": torch.LongTensor(codes).view(1, -1)})
+            wav = vocoder(x, dur_prediction=True)
+            sf.write(out_path, wav.detach().cpu().numpy(), 16000)
+        results[path] = {"response": response, "output_audio": out_path}
+        if on_clip_done is not None:
+            on_clip_done(idx, path, response, out_path)
+
+    with _silenced():
+        del vocoder
+        gc.collect()
+        torch.cuda.empty_cache()
+
+    return results
+
+
 def run_model_b(
     audio_path: str,
     output_path: str,
