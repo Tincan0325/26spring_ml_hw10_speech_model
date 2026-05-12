@@ -4,6 +4,7 @@ Usage:
     from model_b.run import run_model_b
     result = run_model_b("input.wav", "output.wav")
 """
+import contextlib
 import gc
 import json
 import logging
@@ -13,10 +14,36 @@ import tempfile
 import warnings
 from typing import Optional
 
-import torch
-
+# Silence framework chatter — must run BEFORE transformers / fairseq are imported.
+os.environ.setdefault("TRANSFORMERS_VERBOSITY", "error")
+os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
+os.environ.setdefault("TQDM_DISABLE", "1")
 warnings.filterwarnings("ignore")
-logging.getLogger("transformers").setLevel(logging.ERROR)
+for _name in (
+    "transformers", "huggingface_hub", "accelerate", "fairseq", "whisper",
+    "omni_speech", "bitsandbytes",
+):
+    logging.getLogger(_name).setLevel(logging.ERROR)
+
+
+@contextlib.contextmanager
+def _silenced():
+    """Suppress stdout/stderr at the OS level — covers C-extension prints too."""
+    devnull = os.open(os.devnull, os.O_WRONLY)
+    saved_out, saved_err = os.dup(1), os.dup(2)
+    try:
+        os.dup2(devnull, 1)
+        os.dup2(devnull, 2)
+        yield
+    finally:
+        os.dup2(saved_out, 1)
+        os.dup2(saved_err, 2)
+        os.close(devnull)
+        os.close(saved_out)
+        os.close(saved_err)
+
+
+import torch
 
 
 def _patch_quantized_to():
@@ -74,83 +101,83 @@ def _run_inference(
     sys.path.insert(0, framework_dir)
     _patch_quantized_to()
 
-    import whisper
-    from omni_speech.model.builder import load_pretrained_model
-    from omni_speech.conversation import conv_templates
-    from omni_speech.datasets.preprocess import tokenizer_speech_token
-    from fairseq.models.text_to_speech.vocoder import CodeHiFiGANVocoder
-    from fairseq import utils as fs_utils
-    import soundfile as sf
+    with _silenced():
+        import whisper
+        from omni_speech.model.builder import load_pretrained_model
+        from omni_speech.conversation import conv_templates
+        from omni_speech.datasets.preprocess import tokenizer_speech_token
+        from fairseq.models.text_to_speech.vocoder import CodeHiFiGANVocoder
+        from fairseq import utils as fs_utils
+        import soundfile as sf
 
-    model_kwargs = {"token": hf_token} if hf_token else {}
+        model_kwargs = {"token": hf_token} if hf_token else {}
 
-    # 4-bit load to fit Llama-3.1-8B-Omni + speech encoder + projector + vocoder on a T4 (16 GB).
-    tokenizer, model, _ = load_pretrained_model(
-        model_path="ICTNLP/Llama-3.1-8B-Omni",
-        model_base=None,
-        is_lora=False,
-        s2s=True,
-        load_4bit=True,
-        device="cuda",
-        **model_kwargs,
-    )
-    # accelerate's dispatch_model places quantized params on GPU but leaves
-    # non-persistent buffers (e.g. LlamaRotaryEmbedding.inv_freq) on CPU,
-    # which then fails at the first forward. Move them manually.
-    for name, buf in list(model.named_buffers()):
-        if buf.device.type != "cuda":
-            parts = name.split(".")
-            mod = model
-            for p in parts[:-1]:
-                mod = getattr(mod, p)
-            mod.register_buffer(parts[-1], buf.cuda(), persistent=False)
-
-    speech = whisper.load_audio(audio_path)
-    speech = whisper.pad_or_trim(speech)
-    mel = whisper.log_mel_spectrogram(speech, n_mels=128)
-    speech_tensor = mel.permute(1, 0).unsqueeze(0).to(dtype=torch.float16, device="cuda")
-    speech_length = torch.LongTensor([speech_tensor.shape[1]]).to(device="cuda")
-
-    conv = conv_templates["llama_3"].copy()
-    conv.append_message(conv.roles[0], "<speech>")
-    conv.append_message(conv.roles[1], None)
-    prompt = conv.get_prompt()
-    input_ids = tokenizer_speech_token(prompt, tokenizer, return_tensors="pt").unsqueeze(0).to("cuda")
-
-    with torch.inference_mode():
-        outputs = model.generate(
-            input_ids,
-            speech=speech_tensor,
-            speech_lengths=speech_length,
-            do_sample=False,
-            temperature=0,
-            top_p=None,
-            num_beams=1,
-            max_new_tokens=256,
-            use_cache=True,
-            pad_token_id=128004,
-            streaming_unit_gen=False,
+        tokenizer, model, _ = load_pretrained_model(
+            model_path="ICTNLP/Llama-3.1-8B-Omni",
+            model_base=None,
+            is_lora=False,
+            s2s=True,
+            load_4bit=True,
+            device="cuda",
+            **model_kwargs,
         )
-    output_ids, output_units = outputs
+        # accelerate's dispatch_model places quantized params on GPU but leaves
+        # non-persistent buffers (e.g. LlamaRotaryEmbedding.inv_freq) on CPU,
+        # which then fails at the first forward. Move them manually.
+        for name, buf in list(model.named_buffers()):
+            if buf.device.type != "cuda":
+                parts = name.split(".")
+                mod = model
+                for p in parts[:-1]:
+                    mod = getattr(mod, p)
+                mod.register_buffer(parts[-1], buf.cuda(), persistent=False)
 
-    response_text = tokenizer.batch_decode(output_ids, skip_special_tokens=True)[0].strip()
-    units_str = _ctc_postprocess(output_units, blank=model.config.unit_vocab_size)
+        speech = whisper.load_audio(audio_path)
+        speech = whisper.pad_or_trim(speech)
+        mel = whisper.log_mel_spectrogram(speech, n_mels=128)
+        speech_tensor = mel.permute(1, 0).unsqueeze(0).to(dtype=torch.float16, device="cuda")
+        speech_length = torch.LongTensor([speech_tensor.shape[1]]).to(device="cuda")
 
-    del model, tokenizer
-    gc.collect()
-    torch.cuda.empty_cache()
+        conv = conv_templates["llama_3"].copy()
+        conv.append_message(conv.roles[0], "<speech>")
+        conv.append_message(conv.roles[1], None)
+        prompt = conv.get_prompt()
+        input_ids = tokenizer_speech_token(prompt, tokenizer, return_tensors="pt").unsqueeze(0).to("cuda")
 
-    with open(vocoder_cfg) as f:
-        cfg = json.load(f)
-    vocoder = CodeHiFiGANVocoder(vocoder_ckpt, cfg).cuda()
-    codes = list(map(int, units_str.split()))
-    x = fs_utils.move_to_cuda({"code": torch.LongTensor(codes).view(1, -1)})
-    wav = vocoder(x, dur_prediction=True)
-    sf.write(output_path, wav.detach().cpu().numpy(), 16000)
+        with torch.inference_mode():
+            outputs = model.generate(
+                input_ids,
+                speech=speech_tensor,
+                speech_lengths=speech_length,
+                do_sample=False,
+                temperature=0,
+                top_p=None,
+                num_beams=1,
+                max_new_tokens=256,
+                use_cache=True,
+                pad_token_id=128004,
+                streaming_unit_gen=False,
+            )
+        output_ids, output_units = outputs
 
-    del vocoder
-    gc.collect()
-    torch.cuda.empty_cache()
+        response_text = tokenizer.batch_decode(output_ids, skip_special_tokens=True)[0].strip()
+        units_str = _ctc_postprocess(output_units, blank=model.config.unit_vocab_size)
+
+        del model, tokenizer
+        gc.collect()
+        torch.cuda.empty_cache()
+
+        with open(vocoder_cfg) as f:
+            cfg = json.load(f)
+        vocoder = CodeHiFiGANVocoder(vocoder_ckpt, cfg).cuda()
+        codes = list(map(int, units_str.split()))
+        x = fs_utils.move_to_cuda({"code": torch.LongTensor(codes).view(1, -1)})
+        wav = vocoder(x, dur_prediction=True)
+        sf.write(output_path, wav.detach().cpu().numpy(), 16000)
+
+        del vocoder
+        gc.collect()
+        torch.cuda.empty_cache()
 
     return {"response": response_text, "output_audio": output_path}
 
