@@ -51,6 +51,21 @@ if not hasattr(_np, 'sctypes'):
         'others':  [bool, object, bytes, str],
     }
 
+# lulutils (DeSTA dependency) does `from transformers.utils import download_url`,
+# removed in transformers >= 4.46. Patch it back before DeSTA or model_a loads transformers.
+import transformers.utils as _tu
+if not hasattr(_tu, 'download_url'):
+    import urllib.request as _urlreq
+    def _download_url(url, root, filename=None, md5=None):
+        import os as _os
+        _os.makedirs(root, exist_ok=True)
+        if filename is None:
+            filename = url.split('/')[-1]
+        fpath = _os.path.join(root, filename)
+        _urlreq.urlretrieve(url, fpath)
+        return fpath
+    _tu.download_url = _download_url
+
 # Module-level cache — loaded once, reused for every call in the loop.
 _desta_model = None
 
