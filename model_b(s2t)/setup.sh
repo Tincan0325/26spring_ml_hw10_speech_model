@@ -20,6 +20,9 @@ fi
 echo "[Model B] Installing DeSTA..."
 pip install -e /content/DeSTA2.5-Audio >> "$LOG_FILE" 2>&1
 
+echo "[Model B] Pinning transformers==4.49.0 (lulutils requires download_url + is_offline_mode)..."
+pip install "transformers==4.49.0" >> "$LOG_FILE" 2>&1
+
 echo "[Model B] Installing Python dependencies..."
 pip install -r "$SCRIPT_DIR/requirements.txt" >> "$LOG_FILE" 2>&1
 
