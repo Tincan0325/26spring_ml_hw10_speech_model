@@ -1,0 +1,5 @@
+faster-whisper>=1.0.0
+transformers>=4.45.0
+accelerate>=0.34.0
+bitsandbytes>=0.43.0
+soundfile
