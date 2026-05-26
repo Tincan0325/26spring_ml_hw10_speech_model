@@ -38,7 +38,18 @@ def _silenced():
         os.close(saved_err)
 
 
+import numpy as _np
 import torch
+
+# Silero-VAD (used by DeSTA) references np.sctypes which was removed in NumPy 2.0.
+if not hasattr(_np, 'sctypes'):
+    _np.sctypes = {
+        'int':     [_np.int8, _np.int16, _np.int32, _np.int64],
+        'uint':    [_np.uint8, _np.uint16, _np.uint32, _np.uint64],
+        'float':   [_np.float16, _np.float32, _np.float64],
+        'complex': [_np.complex64, _np.complex128],
+        'others':  [bool, object, bytes, str],
+    }
 
 # Module-level cache — loaded once, reused for every call in the loop.
 _desta_model = None
