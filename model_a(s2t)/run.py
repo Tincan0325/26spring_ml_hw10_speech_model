@@ -79,7 +79,7 @@ def _stage2(transcript: str) -> str:
             )
 
         messages = [
-            {"role": "system", "content": "You are an assistant good to classify the gender in male and female"},
+            {"role": "system", "content": "You are an assistant good to classify the gender in male and female. The input audio has a question and related audio data. Focus on the audio data to answer the question."},
             {"role": "user", "content": f"Please classify the gender in the following audio clip.\n{transcript}"},
         ]
         chat_input = _llama_tokenizer.apply_chat_template(
