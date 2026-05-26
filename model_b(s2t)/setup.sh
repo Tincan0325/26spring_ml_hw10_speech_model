@@ -18,7 +18,7 @@ if [ ! -d "/content/DeSTA2.5-Audio" ]; then
 fi
 
 echo "[Model B] Installing DeSTA..."
-pip install /content/DeSTA2.5-Audio >> "$LOG_FILE" 2>&1
+pip install -e /content/DeSTA2.5-Audio >> "$LOG_FILE" 2>&1
 
 echo "[Model B] Installing Python dependencies..."
 pip install -r "$SCRIPT_DIR/requirements.txt" >> "$LOG_FILE" 2>&1

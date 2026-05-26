@@ -73,6 +73,9 @@ def _run_inference(
 
     with _silenced():
         if _desta_model is None:
+            import sys as _sys
+            if '/content/DeSTA2.5-Audio' not in _sys.path:
+                _sys.path.insert(0, '/content/DeSTA2.5-Audio')
             from desta import DeSTA25AudioModel
             _desta_model = DeSTA25AudioModel.from_pretrained(
                 "wilzzzz/DeSTA3-Llama-3.2-3B-distill",
