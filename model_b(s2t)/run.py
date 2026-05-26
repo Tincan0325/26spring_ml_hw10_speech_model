@@ -96,7 +96,7 @@ def _run_inference(
         messages = [
             {
                 "role": "system",
-                "content": "Focus on the audio clips and instructions.",
+                "content": "You are an assistant good to classify the gender in male and female",
             },
             {
                 "role": "user",
@@ -119,7 +119,7 @@ def _run_inference(
 
 def run_model_b(
     audio_path: str,
-    instruction: str = "Describe this audio.",
+    instruction: str = "Please classify the gender in the following audio clip.",
 ) -> dict:
     """Run Model B on an audio file.
 
