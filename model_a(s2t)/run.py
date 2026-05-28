@@ -93,6 +93,9 @@ def _stage2(transcript: str) -> str:
             input_ids = chat_input.to(_llama_model.device)
             generate_kwargs = {"input_ids": input_ids}
 
+        torch.manual_seed(42)
+        if torch.cuda.is_available():
+            torch.cuda.manual_seed_all(42)
         with torch.no_grad():
             output = _llama_model.generate(
                 **generate_kwargs,
