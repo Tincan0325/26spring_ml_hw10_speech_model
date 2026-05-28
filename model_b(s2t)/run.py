@@ -41,6 +41,13 @@ def _silenced():
 import numpy as _np
 import torch
 
+# Auto-trust torch.hub repos so silero-vad doesn't prompt y/N in non-TTY environments.
+_orig_hub_load = torch.hub.load
+def _hub_load_trusted(*args, **kwargs):
+    kwargs.setdefault('trust_repo', True)
+    return _orig_hub_load(*args, **kwargs)
+torch.hub.load = _hub_load_trusted
+
 # Silero-VAD (used by DeSTA) references np.sctypes which was removed in NumPy 2.0.
 if not hasattr(_np, 'sctypes'):
     _np.sctypes = {
